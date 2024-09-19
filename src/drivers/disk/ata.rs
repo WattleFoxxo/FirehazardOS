@@ -104,11 +104,19 @@ impl AtaDevice {
 
         self.wait_busy();
 
+        // unsafe {
+        //     for i in (0..256).step_by(2) {
+        //         let data = self.data_port.read();
+        //         buf[i] = data.get_bits(0..8) as u8;
+        //         buf[i + 1] = data.get_bits(8..16) as u8;
+        //     }
+        // }
+
         unsafe {
-            for i in (0..256).step_by(2) {
+            for i in 0..256 {
                 let data = self.data_port.read();
-                buf[i] = data.get_bits(0..8) as u8;
-                buf[i + 1] = data.get_bits(8..16) as u8;
+                buf[i * 2] = data as u8;
+                buf[i * 2 + 1] = (data >> 8) as u8;
             }
         }
         

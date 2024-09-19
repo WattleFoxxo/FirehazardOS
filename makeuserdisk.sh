@@ -7,8 +7,8 @@
 # quit
 
 rm sdc.img
-dd if=/dev/zero of=sdc.img bs=512 count=131072 # 64MIB
-mkfs.vfat -F 32 -s 2 sdc.img
+dd if=/dev/zero of=sdc.img bs=1024 count=34000
+mkfs.vfat -s 1 -F 32 -n "USER" -i 12345678 sdc.img
 
 # losetup /dev/loop0 disk.img
 mkdir /mnt/fhosuserdisk

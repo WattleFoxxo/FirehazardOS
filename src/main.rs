@@ -4,14 +4,40 @@
 extern crate alloc;
 
 use fhos::println;
-use fhos::task::{executor::Executor, keyboard, Task};
-use bootloader::{entry_point, BootInfo};
+use fhos::task::{ executor::Executor, keyboard, Task };
+use bootloader::{ entry_point, BootInfo };
 use core::panic::PanicInfo;
 use fhos::drivers::disk::ata;
-use fhos::fs::block_device::{ BlockDeviceATA };
-use fat32;
+
+use fhos::fs::{ 
+    filesystem::{ self, GLOBAL_FILESYSTEM },
+    blockdevice::{ BlockDevice }
+};
+
+use fatfs::{ FileSystem, FsOptions, Read };
 
 use crate::ata::AtaDevice;
+
+use log::{ Record, Level, Metadata, trace };
+
+struct SimpleLogger;
+
+
+impl log::Log for SimpleLogger {
+    fn enabled(&self, metadata: &Metadata) -> bool {
+        metadata.level() <= Level::Info
+    }
+
+    fn log(&self, record: &Record) {
+        if self.enabled(record.metadata()) {
+            println!("{} - {}", record.level(), record.args());
+        }
+    }
+
+    fn flush(&self) {}
+}
+
+static LOGGER: SimpleLogger = SimpleLogger;
 
 entry_point!(kernel_main);
 fn kernel_main(boot_info: &'static BootInfo) -> ! {
@@ -21,49 +47,58 @@ fn kernel_main(boot_info: &'static BootInfo) -> ! {
     use fhos::wasm;
     use alloc::string::{String, ToString};
 
-    use fat32::volume::Volume;
+    // use fat32::volume::Volume;
     use alloc::vec::Vec;
+    use log::{SetLoggerError, LevelFilter};
 
     fhos::init();
+    log::set_logger(&LOGGER).map(|()| log::set_max_level(LevelFilter::Trace));
 
-    println!("FHOS 0.0.0");
+    println!("TRACE -> FHOS INIT");
 
     let phys_mem_offset = VirtAddr::new(boot_info.physical_memory_offset);
     let mut mapper = unsafe { memory::init(phys_mem_offset) };
+    println!("TRACE -> MEMORY INIT");
+
     let mut frame_allocator = unsafe { BootInfoFrameAllocator::init(&boot_info.memory_map) };
+    println!("TRACE -> ALLOC INIT");
 
     allocator::init_heap(&mut mapper, &mut frame_allocator).expect("shits fucked :/");
+    println!("TRACE -> HEAP INIT");
     
     ata::init();
+    println!("TRACE -> ATA INIT");
 
-    let disk = BlockDeviceATA::new();
-    let vol = Volume::new(disk);
-    let mut root = vol.root_dir();
+    filesystem::init();
+    println!("TRACE -> FILESYSTEM INIT");
 
-    // root.create_file("test.txt").unwrap();
-    // open file
-    let mut file = root.open_file("test.txt").unwrap();
+    let volume = BlockDevice::new();
+
+    let mut fs = &GLOBAL_FILESYSTEM;
+    let root_dir = fs.root_dir();
     
-    let mut filebuf: [u8; 13] = [42; 13];
+    let mut welcome_file = root_dir.open_file("sys/welcome.txt").unwrap();
 
-    let wah = file.read(&mut filebuf).unwrap();
+    let mut buffer = Vec::new();
+    let mut data = [0u8; 512];
+    loop {
+        match welcome_file.read(&mut data) {
+            Ok(0) => break,
+            Ok(n) => buffer.extend_from_slice(&data[..n]),
+            Err(_) => break, 
+        }
+    }
 
-    println!("{}", wah);
+    println!("/sys/welcome.txt: {}", String::from_utf8(buffer).unwrap());
 
-    println!("{:?}", filebuf);
-    
-    // write buffer to file
-    // file.write(&[80; 1234]).unwrap();
+    let mut executor = Executor::new();
 
-    println!("Ready!");
+    executor.spawn(Task::new(keyboard::print_keypresses()));
+    executor.spawn(Task::new(wasm::run_file("bin/test.was")));
+
+    executor.run();
 
     fhos::hlt_loop();
-
-    // let mut executor = Executor::new();
-    // executor.spawn(Task::new(hello_world_task()));
-    // executor.spawn(Task::new(keyboard::print_keypresses()));
-    // executor.spawn(Task::new(wasm::init()));
-    // executor.run();
 }
 
 async fn async_numb() -> u32 {
